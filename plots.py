@@ -52,14 +52,15 @@ def get_color_attribution(attribution: dict) -> dict:
     return color_attribution
 
 
-def plot_cities_attribution(distances: np.ndarray, attribution: dict) -> None:
+def plot_cities_attribution(attribution: dict) -> None:
     """
     This function plots the map of the SRs attribution.
     Inputs:
-            distances:      Distance matrix between the cities
             attribution:    Attribution dictionnary. The keys are the location of the center brick and the values are the lists of the covered cities
     """
-
+    distances = np.array(
+        pd.read_excel("data/distances_villes.xlsx", header=0, index_col=0)
+    )
     positions = get_positions_city(distances)
     color_attribution = get_color_attribution(attribution)
 
@@ -92,11 +93,11 @@ def plot_cities_attribution(distances: np.ndarray, attribution: dict) -> None:
 if __name__ == "__main__":
     brick_distance = pd.read_csv("data/brick_rp_distances.csv", delimiter=",", header=0)
     index_values = pd.read_csv("data/bricks_index_values.csv", delimiter=",", header=0)
-    distances = pd.read_excel("data/distances_villes.xlsx", header=0, index_col=0)
+
     attribution_initiale = {
         4: [4, 5, 6, 7, 8, 15],
         14: [10, 11, 12, 13, 14],
         16: [9, 16, 17, 18],
         22: [1, 2, 3, 19, 20, 21, 22],
     }
-    plot_cities_attribution(np.array(distances), attribution_initiale)
+    plot_cities_attribution(attribution_initiale)
