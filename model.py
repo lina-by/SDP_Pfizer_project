@@ -1,6 +1,6 @@
 from gurobipy import *
 import pandas as pd
-from typing import Callable
+from typing import Callable, Optional
 
 class ObjectiveFunction(Callable):
     def __call__(self, model: Model, SR_matrix: MVar, current_assignment: dict, distances: pd.DataFrame):
@@ -49,7 +49,7 @@ def disruption(model:Model, SR_matrix:MVar, current_assignment: dict, distances:
         for former_bricks in current_assignment[sr]["Assigned bricks"]:
             objective += index_values[former_bricks] * (1-SR_matrix[former_bricks, sr])
 
-    model.setObjective(objective, GRB.MINIMIZE)
+    return objective
 
 def distance(model:Model, SR_matrix:MVar, current_assignment: dict, distances:pd.DataFrame):
     objective = 0
@@ -59,12 +59,10 @@ def distance(model:Model, SR_matrix:MVar, current_assignment: dict, distances:pd
             center_zone = center_brick[sr]
             objective += distances.loc[zone, center_zone] * SR_matrix[zone, sr]
 
-    model.setObjective(objective, GRB.MINIMIZE)
+    return objective
 
 
-
-
-def create_model(num_zones:int, num_SRs:int, current_assignment: dict, distances:pd.DataFrame, index_values:pd.Series, objective_function:ObjectiveFunction, wl_interval:tuple[float, float]=(0.8, 1.2)):
+def create_model(num_zones:int, num_SRs:int, current_assignment: dict, distances:pd.DataFrame, index_values:pd.Series, objective_function:ObjectiveFunction, wl_interval:tuple[float, float]=(0.8, 1.2), epsilon_constraint:Optional[ObjectiveFunction]=None, epsilon:Optional[float]=None):
     model = Model("pfizer_sr")
     center_brick = {sr: data["Center brick"] for sr, data in current_assignment.items()}
     SR_matrix = model.addMVar((num_zones, num_SRs), vtype=GRB.BINARY, name="zone_SR")
@@ -76,7 +74,12 @@ def create_model(num_zones:int, num_SRs:int, current_assignment: dict, distances
 
     centre_assignment(model=model, SR_matrix=SR_matrix, center_brick=center_brick)
     
-    objective_function(model, SR_matrix, current_assignment, distances)
+    if epsilon_constraint is not None and epsilon is not None:
+        constraint = epsilon_constraint(model, SR_matrix, current_assignment, distances)
+        model.addConstr(constraint <= epsilon, name="epsilon_constraint")
+
+    objective = objective_function(model, SR_matrix, current_assignment, distances)
+    model.setObjective(objective, GRB.MINIMIZE)
 
     return model
 
@@ -99,6 +102,8 @@ def print_solution(model: Model, num_zones: int, num_SRs: int):
     
 
 if __name__=='__main__':
-    model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment, distances=distances, objective_function=disruption, index_values=index_values)
+    model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
+                         distances=distances, objective_function=disruption, index_values=index_values,
+                         epsilon=300, epsilon_constraint=distance)
     model.optimize()
     print_solution(model, num_zones, num_SRs)
