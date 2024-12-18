@@ -45,8 +45,8 @@ def get_color_attribution(attribution: dict) -> dict:
     color_list = list(mcolors.TABLEAU_COLORS)
 
     color_attribution = {}
-    for color_id, center in enumerate(attribution):
-        for city in attribution[center]:
+    for color_id in attribution:
+        for city in attribution[color_id]["Assigned bricks"]:
             color_attribution[city] = color_list[color_id]
 
     return color_attribution
@@ -69,9 +69,7 @@ def plot_cities_attribution(attribution: dict) -> None:
     plt.scatter(
         positions[:, 0],
         positions[:, 1],
-        color=[
-            color_attribution[city] for city in range(1, len(color_attribution) + 1)
-        ],
+        color=[color_attribution[city] for city in range(len(color_attribution))],
         s=50,
     )
 
@@ -82,7 +80,9 @@ def plot_cities_attribution(attribution: dict) -> None:
             f"{i+1}",
             fontsize=8,
             ha="right",
-            weight="bold" if i + 1 in attribution else None,
+            weight="bold"
+            if i + 1 in [attribution[i]["Center brick"] for i in attribution]
+            else None,
         )
 
     plt.title("Attribution des villes aux commerciaux")
@@ -94,10 +94,10 @@ if __name__ == "__main__":
     brick_distance = pd.read_csv("data/brick_rp_distances.csv", delimiter=",", header=0)
     index_values = pd.read_csv("data/bricks_index_values.csv", delimiter=",", header=0)
 
-    attribution_initiale = {
-        4: [4, 5, 6, 7, 8, 15],
-        14: [10, 11, 12, 13, 14],
-        16: [9, 16, 17, 18],
-        22: [1, 2, 3, 19, 20, 21, 22],
+    current_assignment = {
+        0: {"Center brick": 3, "Assigned bricks": [3, 4, 5, 6, 7, 14]},
+        1: {"Center brick": 13, "Assigned bricks": [9, 10, 11, 12, 13]},
+        2: {"Center brick": 15, "Assigned bricks": [8, 15, 16, 17]},
+        3: {"Center brick": 21, "Assigned bricks": [0, 1, 2, 18, 19, 20, 21]},
     }
-    plot_cities_attribution(attribution_initiale)
+    plot_cities_attribution(current_assignment)
