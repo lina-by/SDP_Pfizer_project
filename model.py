@@ -1,5 +1,10 @@
 from gurobipy import *
 import pandas as pd
+from typing import Callable
+
+class ObjectiveFunction(Callable):
+    def __call__(self, model: Model, SR_matrix: MVar, current_assignment: dict, distances: pd.DataFrame):
+        pass
 
 distances = pd.read_excel('Classeur1.xlsx')
 distances = distances.drop(distances.columns[0], axis=1)
@@ -16,9 +21,6 @@ current_assignment = {
     2: {"Center brick": 15, "Assigned bricks": [8, 15, 16, 17]},
     3: {"Center brick": 21, "Assigned bricks": [0, 1, 2, 18, 19, 20, 21]}
 }
-
-
-center_brick = {sr: data["Center brick"] for sr, data in current_assignment.items()}
 
 
 def workload_constraints(model:Model, SR_matrix:MVar, index_values:pd.Series, wl_min: float = 0.8, wl_max: float = 1.2):
@@ -41,9 +43,30 @@ def centre_assignment(model:Model, SR_matrix:MVar, center_brick: dict):
     for sr, center_zone in center_brick.items():
         model.addConstr(SR_matrix[center_zone, sr] == 1, name=f"center_brick_{sr}")
 
+def disruption(model:Model, SR_matrix:MVar, current_assignment: dict, distances:pd.DataFrame):
+    objective = 0
+    for sr in range(num_SRs):
+        for former_bricks in current_assignment[sr]["Assigned bricks"]:
+            objective += index_values[former_bricks] * (1-SR_matrix[former_bricks, sr])
 
-def create_model(num_zones:int, num_SRs:int, center_brick: dict, distances:pd.DataFrame, index_values:pd.Series, wl_interval:tuple[float, float]=(0.8, 1.2)):
+    model.setObjective(objective, GRB.MINIMIZE)
+
+def distance(model:Model, SR_matrix:MVar, current_assignment: dict, distances:pd.DataFrame):
+    objective = 0
+    center_brick = {sr: data["Center brick"] for sr, data in current_assignment.items()}
+    for zone in range(num_zones):
+        for sr in range(num_SRs):
+            center_zone = center_brick[sr]
+            objective += distances.loc[zone, center_zone] * SR_matrix[zone, sr]
+
+    model.setObjective(objective, GRB.MINIMIZE)
+
+
+
+
+def create_model(num_zones:int, num_SRs:int, current_assignment: dict, distances:pd.DataFrame, index_values:pd.Series, objective_function:ObjectiveFunction, wl_interval:tuple[float, float]=(0.8, 1.2)):
     model = Model("pfizer_sr")
+    center_brick = {sr: data["Center brick"] for sr, data in current_assignment.items()}
     SR_matrix = model.addMVar((num_zones, num_SRs), vtype=GRB.BINARY, name="zone_SR")
 
     # une zone par sr
@@ -52,13 +75,8 @@ def create_model(num_zones:int, num_SRs:int, center_brick: dict, distances:pd.Da
     workload_constraints(model=model, SR_matrix=SR_matrix, index_values=index_values, wl_min=wl_interval[0], wl_max=wl_interval[1])
 
     centre_assignment(model=model, SR_matrix=SR_matrix, center_brick=center_brick)
-    objective = 0
-    for zone in range(num_zones):
-        for sr in range(num_SRs):
-            center_zone = center_brick[sr]
-            objective += distances.loc[zone, center_zone] * SR_matrix[zone, sr]
-
-    model.setObjective(objective, GRB.MINIMIZE)
+    
+    objective_function(model, SR_matrix, current_assignment, distances)
 
     return model
 
@@ -81,6 +99,6 @@ def print_solution(model: Model, num_zones: int, num_SRs: int):
     
 
 if __name__=='__main__':
-    model = create_model(num_zones=num_zones, num_SRs=num_SRs, center_brick=center_brick, distances=distances, index_values=index_values)
+    model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment, distances=distances, objective_function=distance, index_values=index_values)
     model.optimize()
     print_solution(model, num_zones, num_SRs)
