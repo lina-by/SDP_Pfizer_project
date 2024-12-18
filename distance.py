@@ -1,71 +1,86 @@
 from gurobipy import *
 import pandas as pd
 
-distances = pd.read_excel('Classeur1.xlsx', index_col=0)
-index_values = pd.read_csv("bricks_index_values.csv").set_index('brick').squeeze()
+distances = pd.read_excel('Classeur1.xlsx')
+distances = distances.drop(distances.columns[0], axis=1)
+distances.columns = range(len(distances.columns))
 
-# Create a new optimization model
-model = Model("pfizer_sr")
+index_values = pd.read_csv("bricks_index_values.csv")['index_value']
 
-zones = list(range(1, 23))
-SR_values = [1, 2, 3, 4]
-num_zones = len(zones)
-num_SRs = len(SR_values)
+num_zones = 22  
+num_SRs = 4
 
 current_assignment = {
-    1: {"Center brick": 4, "Assigned bricks": [4, 5, 6, 7, 8, 15]},
-    2: {"Center brick": 14, "Assigned bricks": [10, 11, 12, 13, 14]},
-    3: {"Center brick": 16, "Assigned bricks": [9, 16, 17, 18]},
-    4: {"Center brick": 22, "Assigned bricks": [1, 2, 3, 19, 20, 21, 22]}
+    0: {"Center brick": 3, "Assigned bricks": [3, 4, 5, 6, 7, 14]},
+    1: {"Center brick": 13, "Assigned bricks": [9, 10, 11, 12, 13]},
+    2: {"Center brick": 15, "Assigned bricks": [8, 15, 16, 17]},
+    3: {"Center brick": 21, "Assigned bricks": [0, 1, 2, 18, 19, 20, 21]}
 }
 
-center_brick = {sr: data["Center brick"] - 1 for sr, data in current_assignment.items()}
+
+center_brick = {sr: data["Center brick"] for sr, data in current_assignment.items()}
 
 
-SR = model.addMVar((num_zones, num_SRs), vtype=GRB.BINARY, name="zone_SR")
-
-# une zone par sr
-model.addConstr(SR.sum(axis=1) == 1, name="assign_one_SR")
-
-# charge de travail dans [0.8, 1.2]
-for sr in SR_values:
-    model.addConstr(
-        quicksum(SR[zone-1, sr-1] * index_values[zone] for zone in zones) <= 1.2, 
-        name=f"max_workload_sr_{sr}"
-    )
-    model.addConstr(
-        quicksum(SR[zone-1, sr-1] * index_values[zone] for zone in zones) >= 0.8, 
-        name=f"min_workload_sr_{sr}"
-    )
+def workload_constraints(model:Model, SR_matrix:MVar, index_values:pd.Series, wl_min: float = 0.8, wl_max: float = 1.2):
+    num_zones, num_SRs = SR_matrix.shape
+    for sr in range(num_SRs):
+        # Add the constraint for the maximum workload
+        model.addConstr(
+            quicksum(SR_matrix[zone, sr] * index_values[zone] for zone in range(num_zones)) <= wl_max, 
+            name=f"max_workload_sr_{sr}"
+        )
+        
+        # Add the constraint for the minimum workload
+        model.addConstr(
+            quicksum(SR_matrix[zone, sr] * index_values[zone] for zone in range(num_zones)) >= wl_min, 
+            name=f"min_workload_sr_{sr}"
+        )
 
 # assigner centre zone
-for sr, center_zone in center_brick.items():
-    model.addConstr(SR[center_zone, sr - 1] == 1, name=f"center_brick_{sr}")
+def centre_assignment(model:Model, SR_matrix:MVar, center_brick: dict):
+    for sr, center_zone in center_brick.items():
+        model.addConstr(SR_matrix[center_zone, sr] == 1, name=f"center_brick_{sr}")
 
 
+def create_model(num_zones:int, num_SRs:int, center_brick: dict, distances:pd.DataFrame, index_values:pd.Series, wl_interval:tuple[float, float]=(0.8, 1.2)):
+    model = Model("pfizer_sr")
+    SR_matrix = model.addMVar((num_zones, num_SRs), vtype=GRB.BINARY, name="zone_SR")
 
-# obj
-objective = 0
-for zone in zones:
-    for sr in SR_values:
-        center_zone = center_brick[sr]
-        objective += distances.loc[zone, center_zone] * SR[zone-1, sr - 1]
+    # une zone par sr
+    model.addConstr(SR_matrix.sum(axis=1) == 1, name="assign_one_SR")
 
-model.setObjective(objective, GRB.MINIMIZE)
+    workload_constraints(model=model, SR_matrix=SR_matrix, index_values=index_values, wl_min=wl_interval[0], wl_max=wl_interval[1])
 
-model.optimize()
+    centre_assignment(model=model, SR_matrix=SR_matrix, center_brick=center_brick)
+    objective = 0
+    for zone in range(num_zones):
+        for sr in range(num_SRs):
+            center_zone = center_brick[sr]
+            objective += distances.loc[zone, center_zone] * SR_matrix[zone, sr]
 
-#print solution
-if model.status == GRB.OPTIMAL:
-    print("Optimal solution found:")
+    model.setObjective(objective, GRB.MINIMIZE)
+
+    return model
+
+
+def print_solution(model: Model, num_zones: int, num_SRs: int):
+    if model.status == GRB.OPTIMAL:
+        print("Optimal solution found:\n")
+        
+        # Loop through the variables and access their values
+        for sr in range(num_SRs):
+            print(f"SR {sr+1} assignments:")
+            for zone in range(num_zones):
+                # Find the variable corresponding to zone and SR
+                var_name = f"zone_SR[{zone},{sr}]"
+                var = model.getVarByName(var_name)
+                if var.x > 0.5:  # If the value is 1, the zone is assigned to this SR
+                    print(f"  Zone {zone+1} (Assigned)")
+    else:
+        print("No optimal solution found!")
     
-    # Print the assignment of zones to SRs
-    for zone in zones:
-        for sr in SR_values:
-            if SR[zone-1, sr-1].x > 0.5:  # If zone is assigned to SR (binary variable)
-                print(f"Zone {zone} is assigned to SR {sr}")
 
-    # Print the value of the objective (total distance)
-    print(f"Optimal total distance: {model.objVal}")
-else:
-    print("No optimal solution found.")
+if __name__=='__main__':
+    model = create_model(num_zones=num_zones, num_SRs=num_SRs, center_brick=center_brick, distances=distances, index_values=index_values)
+    model.optimize()
+    print_solution(model, num_zones, num_SRs)
