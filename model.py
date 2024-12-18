@@ -3,6 +3,7 @@ import pandas as pd
 from typing import Callable, Optional
 
 from objective_functions import *
+from plots import plot_cities_attribution
 
 
 def workload_constraints(model: Model, SR_matrix: MVar, index_values: pd.Series, wl_min: float = 0.8, wl_max: float = 1.2):
@@ -21,6 +22,7 @@ def workload_constraints(model: Model, SR_matrix: MVar, index_values: pd.Series,
                      for zone in range(num_zones)) >= wl_min,
             name=f"min_workload_sr_{sr}"
         )
+
 
 # assigner centre zone
 
@@ -118,3 +120,12 @@ if __name__ == '__main__':
                          epsilon=300, epsilon_constraint=distance)
     model.optimize()
     print_solution(model, num_zones, num_SRs)
+    plot_cities_attribution(
+        get_solution_dict(
+            model,
+            num_zones,
+            num_SRs,
+            [current_assignment[i]["Center brick"]
+                for i in current_assignment],
+        )
+    )
