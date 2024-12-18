@@ -6,7 +6,9 @@ import numpy as np
 
 
 def rebuild_sol(l: list, num_zones: int, num_SRs: int):
-    print(l)
+    '''
+    Returns a matrix representing the solution from Gurobi
+    '''
     mat = np.zeros((num_zones, num_SRs))
 
     for i in range(len(l)):
@@ -19,9 +21,9 @@ def rebuild_sol(l: list, num_zones: int, num_SRs: int):
 
 def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, wl_interval: tuple[float, float] = (0.8, 1.2), epsilon_constraint: Optional[ObjectiveFunction] = None):
     status = GRB.OPTIMAL
-    assignments = []
-    res = []
+    outputs = []
     epsilon = None
+
     while status == GRB.OPTIMAL:
         model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
                              distances=distances, index_values=index_values, objective_function=objective_function, wl_interval=wl_interval,
@@ -29,28 +31,20 @@ def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, 
         model.params.outputflag = 0
         model.optimize()
         status = model.status
+
         if status == GRB.OPTIMAL:
-            '''assignments.append(get_solution_dict(
-                model, num_zones, num_SRs, [3, 13, 15, 21]))'''
-            vars = [var.x for var in model.getVars()]
-            rebuilded_sol = rebuild_sol(vars, num_zones, num_SRs)
+            output_vars = [var.x for var in model.getVars()]
+            rebuilded_sol = rebuild_sol(output_vars, num_zones, num_SRs)
             current_val = float(epsilon_constraint(
                 rebuilded_sol, current_assignment, distances, index_values))
 
-            # TODO check which one to put first
-            res.append((model.ObjVal, current_val))
-            print((model.ObjVal, current_val))
-            epsilon = current_val - 0.5
-            # print(current_val)
-            # print(vars)
-            # print([var.x for var in vars])
-            # print("blblb: ", model.ObjVal)
-            # print("eps constr: ", model.getConstrByName(
-            #    'epsilon_constraint').getValue())
-        '''else:
-            print_solution(model, num_zones, num_SRs)'''
+            outputs.append((model.ObjVal, current_val))
+            if epsilon_constraint == distance:
+                epsilon = current_val - 0.5
+            else:
+                epsilon = current_val - 0.05
 
-    return res
+    return outputs
 
 
 if __name__ == "__main__":
