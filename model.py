@@ -6,11 +6,11 @@ class ObjectiveFunction(Callable):
     def __call__(self, model: Model, SR_matrix: MVar, current_assignment: dict, distances: pd.DataFrame):
         pass
 
-distances = pd.read_excel('Classeur1.xlsx')
+distances = pd.read_excel('data/distances.xlsx')
 distances = distances.drop(distances.columns[0], axis=1)
 distances.columns = range(len(distances.columns))
 
-index_values = pd.read_csv("bricks_index_values.csv")['index_value']
+index_values = pd.read_csv("data/bricks_index_values.csv")['index_value']
 
 num_zones = 22  
 num_SRs = 4
@@ -99,6 +99,6 @@ def print_solution(model: Model, num_zones: int, num_SRs: int):
     
 
 if __name__=='__main__':
-    model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment, distances=distances, objective_function=distance, index_values=index_values)
+    model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment, distances=distances, objective_function=disruption, index_values=index_values)
     model.optimize()
     print_solution(model, num_zones, num_SRs)
