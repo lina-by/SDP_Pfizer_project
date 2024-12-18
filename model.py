@@ -1,6 +1,7 @@
 from gurobipy import *
 import pandas as pd
 from typing import Callable
+from plots import plot_cities_attribution
 
 
 class ObjectiveFunction(Callable):
@@ -171,7 +172,7 @@ if __name__ == "__main__":
     )
     model.optimize()
     print_solution(model, num_zones, num_SRs)
-    print(
+    plot_cities_attribution(
         get_solution_dict(
             model,
             num_zones,

@@ -81,7 +81,7 @@ def plot_cities_attribution(attribution: dict) -> None:
             fontsize=8,
             ha="right",
             weight="bold"
-            if i + 1 in [attribution[i]["Center brick"] for i in attribution]
+            if i in [attribution[i]["Center brick"] for i in attribution]
             else None,
         )
 
