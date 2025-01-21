@@ -27,35 +27,40 @@ def workload_constraints(model: Model, SR_matrix: MVar, index_values: pd.Series,
 # assigner centre zone
 
 
-def centre_assignment(model: Model, SR_matrix: MVar, center_brick: dict):
+def centre_assignment(model: Model, SR_matrix: MVar, center_brick: dict, seuil):
     for sr, center_zone in center_brick.items():
-        model.addConstr(SR_matrix[center_zone, sr] ==
-                        1, name=f"center_brick_{sr}")
+        model.addConstr(SR_matrix[center_zone, sr] >=
+                        seuil, name=f"center_brick_{sr}")
 
 
-def create_model(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, wl_interval: tuple[float, float] = (0.8, 1.2), epsilon_constraint: Optional[ObjectiveFunction] = None, epsilon: Optional[float] = None):
+def create_model(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, wl_interval: tuple[float, float] = (0.8, 1.2), epsilon_constraint: Optional[ObjectiveFunction] = None, epsilon: Optional[float] = None, seuil:float = 0.05):
     model = Model("pfizer_sr")
     center_brick = {sr: data["Center brick"]
                     for sr, data in current_assignment.items()}
-    SR_matrix = model.addMVar((num_zones, num_SRs),
-                              vtype=GRB.BINARY, name="zone_SR")
+    # pourcentage de la zone qui est occupée par le SR
+    SR_matrix = model.addMVar((num_zones, num_SRs), lb=0, ub=1, vtype=GRB.CONTINUOUS, name="pct_zone_SR")
+    # booléen la zone est occupée par le SR
+    boolean_matrix = model.addMVar((num_zones, num_SRs), vtype=GRB.BINARY, name="zone_SR")
+    # Si le pct de la zone est non nul, le booléen est de 1
+    model.addConstr(SR_matrix <= boolean_matrix, name="link_SR_boolean")
 
-    # une zone par sr
+
+    # chaque zone est occupée à 100%
     model.addConstr(SR_matrix.sum(axis=1) == 1, name="assign_one_SR")
 
     workload_constraints(model=model, SR_matrix=SR_matrix,
                          index_values=index_values, wl_min=wl_interval[0], wl_max=wl_interval[1])
 
     centre_assignment(model=model, SR_matrix=SR_matrix,
-                      center_brick=center_brick)
+                      center_brick=center_brick, seuil=seuil)
 
     if epsilon is not None and epsilon_constraint is not None:
         constraint = epsilon_constraint(
-            SR_matrix, current_assignment, distances, index_values)
+            SR_matrix, boolean_matrix, current_assignment, distances, index_values)
         model.addConstr(constraint <= epsilon, name="epsilon_constraint")
 
     objective = objective_function(
-        SR_matrix, current_assignment, distances, index_values)
+        SR_matrix, boolean_matrix, current_assignment, distances, index_values)
     model.setObjective(objective, GRB.MINIMIZE)
 
     return model
@@ -78,9 +83,7 @@ def print_solution(model: Model, num_zones: int, num_SRs: int):
         print("No optimal solution found!")
 
 
-def get_solution_dict(
-    model: Model, num_zones: int, num_SRs: int, centers_list: list
-) -> dict:
+def get_solution_dict(model: Model, num_zones: int, num_SRs: int, centers_list: list) -> dict:
     if model.status == GRB.OPTIMAL:
         assignment = {}
 
@@ -116,8 +119,7 @@ if __name__ == '__main__':
         3: {"Center brick": 21, "Assigned bricks": [0, 1, 2, 18, 19, 20, 21]}
     }
     model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
-                         distances=distances, objective_function=disruption, index_values=index_values,
-                         epsilon=300, epsilon_constraint=distance)
+                         distances=distances, objective_function=distance, index_values=index_values)
     model.optimize()
     print_solution(model, num_zones, num_SRs)
     plot_cities_attribution(
