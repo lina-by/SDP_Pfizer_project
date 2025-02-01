@@ -28,35 +28,23 @@ def rank(
     model = Model("preferences")
 
     num_preferences = list_alternatives.shape[0]
-    num_criteria = len(minmax)
+    num_criteria = list_alternatives.shape[1]
 
-    turning_point_criteria = np.zeros((num_criteria, L + 1))
-    for id, criteria in enumerate(minmax):
-        min, max = minmax[criteria]
-        for turning_point in range(L + 1):
-            turning_point_criteria[id, turning_point] = (
-                min + turning_point * (max - min) / L
-            )
+    turning_point_criteria = np.array(
+        [
+            np.linspace(minmax[criteria][0], minmax[criteria][1], L + 1)
+            for criteria in minmax
+        ]
+    )
 
-    segment_identification = {}
+    segment_identification = {}  # This dictionnary will be used to compute piecewise affine scores.
     for [id0, id1] in partial_ranking:
-        if id0 not in segment_identification:
-            segment_identification[id0] = []
-            values = list_alternatives[id0]
-            for i, value in enumerate(values):
-                min, max = minmax[i]
-                k = math.floor(L * (value - min) / (max - min))
-                xik = min + k * (max - min) / L
-                segment_identification[id0].append([k, L * (value - xik) / (max - min)])
-
-        if id1 not in segment_identification:
-            segment_identification[id1] = []
-            values = list_alternatives[id1]
-            for i, value in enumerate(values):
-                min, max = minmax[i]
-                k = math.floor(L * (value - min) / (max - min))
-                xik = min + k * (max - min) / L
-                segment_identification[id1].append([k, L * (value - xik) / (max - min)])
+        segment_identification = add_id_to_segment_identification_if_necessary(
+            list_alternatives, L, minmax, segment_identification, id0
+        )
+        segment_identification = add_id_to_segment_identification_if_necessary(
+            list_alternatives, L, minmax, segment_identification, id1
+        )
 
     sik_matrix = model.addMVar(
         (num_criteria, L + 1), vtype=GRB.CONTINUOUS, name="Sik", lb=0, ub=1
@@ -81,37 +69,13 @@ def rank(
             )
 
     for [id0, id1] in partial_ranking:
-        six0 = 0
-        six1 = 0
-
-        for i in range(num_criteria):
-            if segment_identification[id0][i][0] == L:
-                six0 += sik_matrix[i, -1]
-            else:
-                six0 += (
-                    segment_identification[id0][i][1]
-                    * (
-                        sik_matrix[i, segment_identification[id0][i][0] + 1]
-                        - sik_matrix[i, segment_identification[id0][i][0]]
-                    )
-                    + sik_matrix[i, segment_identification[id0][i][0]]
-                )
-
-            if segment_identification[id1][i][0] == L:
-                six1 += sik_matrix[i, -1]
-            else:
-                six1 += (
-                    segment_identification[id1][i][1]
-                    * (
-                        sik_matrix[i, segment_identification[id1][i][0] + 1]
-                        - sik_matrix[i, segment_identification[id1][i][0]]
-                    )
-                    + sik_matrix[i, segment_identification[id1][i][0]]
-                )
+        s_ix0 = get_score(L, num_criteria, segment_identification, sik_matrix, id0)
+        s_ix1 = get_score(L, num_criteria, segment_identification, sik_matrix, id1)
 
         model.addConstr(
-            six0 + sigmaplus[id0] - sigmamoins[id0]
-            >= six1 + sigmaplus[id1] - sigmamoins[id1] + eps
+            s_ix0 + sigmaplus[id0] - sigmamoins[id0]
+            >= s_ix1 + sigmaplus[id1] - sigmamoins[id1] + eps,
+            name=f"ranking constraints {id0}/{id1}",
         )
 
     model.setObjective(sigmaplus.sum() + sigmamoins.sum(), GRB.MINIMIZE)
@@ -119,7 +83,69 @@ def rank(
     return model, sik_matrix, turning_point_criteria
 
 
-def plot_score_curves(stop_points, score_matrix_result, hospitals):
+def get_score(L, num_criteria, segment_identification, sik_matrix, id):
+    """
+    This function gets the score calculation of a given alternative to use in the gurobi optimisation.
+
+    Inputs:
+        L:                          Number of pieces for the piecewize-affine function of each criteria
+        num_criteria:               Number of various criteria taken into account for the scoring function
+        segment_identification:     Dictionnary used to map each alternative to the relevant segment of the piecewise-affine score function
+        sik_matrix:                 Gurobi optimisation variable matrix determining the altitude of each turning point for each criteria
+        id:                         The id of the alternative whose score is to be determined
+
+    Output:
+        score:                      The computed score expressed with Gurobi variables.
+    """
+
+    score = 0
+    for i in range(num_criteria):
+        if segment_identification[id][i][0] == L:
+            score += sik_matrix[i, -1]
+
+        else:  # Compute piecewise-affine score
+            score += (
+                segment_identification[id][i][1]
+                * (
+                    sik_matrix[i, segment_identification[id][i][0] + 1]
+                    - sik_matrix[i, segment_identification[id][i][0]]
+                )
+                + sik_matrix[i, segment_identification[id][i][0]]
+            )
+
+    return score
+
+
+def add_id_to_segment_identification_if_necessary(
+    list_alternatives, L, minmax, segment_identification, id
+):
+    """
+    This function adds the identification of each creteria segment for the given alternative. This will be used to compute piecewise affine scores afterwards.
+
+    Inputs:
+        list_alternatives:          Array of size (number of alternatives, number of criteria) representing the score on each criteria and for each alternative
+        L:                          Number of pieces for the piecewize-affine function of each criteria
+        minmax:                     Dictionnary whose keys is the id of the criteria and the value is a pair [minimum value, maximum value] for the given criteria.
+        segment_identification:     Dictionnary storing the segment identifications.
+        id:                         Id of the alternative to be added if it is not already in the dictionnary
+
+    Output:
+        segment_identification:     Up to date dictionnary storing the segment identifications.
+    """
+
+    if id not in segment_identification:
+        segment_identification[id] = []
+        values = list_alternatives[id]
+        for i, value in enumerate(values):
+            min, max = minmax[i]
+            k = math.floor(L * (value - min) / (max - min))
+            xik = min + k * (max - min) / L
+            segment_identification[id].append([k, L * (value - xik) / (max - min)])
+
+    return segment_identification
+
+
+def plot_score_curves(stop_points, score_matrix_result, alternatives):
     plt.figure(figsize=(15, 5))
     criteria_labels = [f"Critère {i + 1}" for i in range(stop_points.shape[1])]
 
@@ -134,35 +160,35 @@ def plot_score_curves(stop_points, score_matrix_result, hospitals):
             label=f"Score {criteria_labels[criterion]}",
         )
 
-        # Ajouter les universités sur la courbe avec interpolation
-        for hosp_idx, hosp in enumerate(hospitals):
-            l = np.searchsorted(stop_points[:, criterion], hosp[criterion])
-            if l == 0:
+        # Ajouter les alternatives sur la courbe avec interpolation
+        for alt_idx, alt in enumerate(alternatives):
+            index = np.searchsorted(stop_points[:, criterion], alt[criterion])
+            if index == 0:
                 interpolated_score = score_matrix_result[0, criterion]
-            elif l >= len(stop_points):
+            elif index >= len(stop_points):
                 interpolated_score = score_matrix_result[-1, criterion]
             else:
-                dx = (hosp[criterion] - stop_points[l - 1, criterion]) / (
-                    stop_points[l, criterion] - stop_points[l - 1, criterion]
+                dx = (alt[criterion] - stop_points[index - 1, criterion]) / (
+                    stop_points[index, criterion] - stop_points[index - 1, criterion]
                 )
                 dy = dx * (
-                    score_matrix_result[l, criterion]
-                    - score_matrix_result[l - 1, criterion]
+                    score_matrix_result[index, criterion]
+                    - score_matrix_result[index - 1, criterion]
                 )
-                interpolated_score = score_matrix_result[l - 1, criterion] + dy
+                interpolated_score = score_matrix_result[index - 1, criterion] + dy
 
-            plt.scatter(hosp[criterion], interpolated_score, marker="x", color="red")
+            plt.scatter(alt[criterion], interpolated_score, marker="x", color="red")
             plt.text(
-                hosp[criterion],
+                alt[criterion],
                 interpolated_score,
-                f"Hospital {hosp_idx}",
+                str(alt_idx),
                 fontsize=9,
                 verticalalignment="bottom",
             )
 
         plt.xlabel(f"Valeur réelle {criteria_labels[criterion]}")
-        plt.ylabel(f"Score normalisé {criteria_labels[criterion]}")
-        plt.title(f"Évolution du score pour {criteria_labels[criterion]}")
+        plt.ylabel(f"Score calculé {criteria_labels[criterion]}")
+        plt.title(f"Score affine par Morceaux du {criteria_labels[criterion]}")
         plt.legend()
         plt.grid()
 
@@ -211,12 +237,23 @@ def fonction_affine_par_morceaux(X, Y, x):
     return valeurs
 
 
-if __name__ == "__main__":
-    preferences_DF = pd.read_excel("data\Preferences.xlsx").drop_duplicates()
-    preferences = np.array(preferences_DF)[:, 1:]
-    partial_ranking = []
-    for i in range(len(preferences) - 1):
-        partial_ranking.append([len(preferences) - (i + 1), len(preferences) - (i + 2)])
+def compute_scoring_based_on_preferences(
+    preferences, partial_ranking, L, eps, plot_curves, all_alternatives
+):
+    """
+    This function computes a piecewise-affine scoring function to respect the given partial ranking and computes the score on all the given alternatives.
+
+    Inputs:
+        preferences:        Array of size (number of alternatives, number of criteria) representing the score on each criteria and for each alternative of the training set
+        partial ranking:    List of pairs of alternatives exhibiting a preference. For example, the pair [0,1] means alternative 0 is scored higher than alternaative 1
+        L:                  Number of pieces for the piecewize-affine function of each criteria
+        eps:                Epsilon value determining strictly inequality constraints (a > b     <=>    a >= b + eps)
+        plot_curves:        Set to True if you want to plot the piecewize affine functions for each criteria
+        all_alternatives:   Array of size (number of alternatives, number of criteria) representing the score on each criteria and for each alternative of the application set
+
+    Output:
+        scores:             Array of size (number of alternatives) giving the computed score of the application set's alternatives
+    """
 
     minmax = {
         i: [np.min(preferences[:, i]), np.max(preferences[:, i])]
@@ -226,20 +263,46 @@ if __name__ == "__main__":
     model, sik_matrix, turning_point_criteria = rank(
         list_alternatives=preferences,
         partial_ranking=partial_ranking,
-        L=8,
+        L=L,
         minmax=minmax,
-        eps=1e-4,
+        eps=eps,
     )
 
     model.optimize()
-    score_matrix_result = sik_matrix.X
-    stop_points = turning_point_criteria
-    plot_score_curves(stop_points.T, score_matrix_result.T, preferences)
-    values = np.zeros_like(preferences[:, 0], dtype=float)
-    for i in range(preferences.shape[1]):
-        values += fonction_affine_par_morceaux(
-            turning_point_criteria[i, :], score_matrix_result[i, :], preferences[:, i]
-        )
+
+    if model.status == GRB.OPTIMAL:
+        score_matrix_result = sik_matrix.X
+
+        if plot_curves:
+            stop_points = turning_point_criteria
+            plot_score_curves(stop_points.T, score_matrix_result.T, preferences)
+
+        scores = np.zeros_like(all_alternatives[:, 0], dtype=float)
+
+        for i in range(all_alternatives.shape[1]):
+            scores += fonction_affine_par_morceaux(
+                turning_point_criteria[i, :],
+                score_matrix_result[i, :],
+                all_alternatives[:, i],
+            )
+
+        return scores
+
+    else:
+        raise ValueError("No optimal result found!")
+
+
+if __name__ == "__main__":
+    preferences_DF = pd.read_excel("data\Preferences.xlsx").drop_duplicates()
+    preferences = np.array(preferences_DF)[:, 1:]
+
+    partial_ranking = []
+    for i in range(len(preferences) - 1):
+        partial_ranking.append([len(preferences) - (i + 1), len(preferences) - (i + 2)])
+
+    values = compute_scoring_based_on_preferences(
+        preferences, partial_ranking, 4, 1e-3, True, preferences
+    )
 
     preferences_DF["Score"] = values
     preferences_DF.to_excel("data/result_score.xlsx", index=False)
