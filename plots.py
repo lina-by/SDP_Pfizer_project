@@ -34,45 +34,58 @@ def get_positions_city(distances: np.ndarray) -> np.ndarray:
     positions = mds.fit_transform(distances)
     return rotate_symmetry(positions, -2 * np.pi / 3)
 
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from matplotlib.patches import Wedge
 
 def get_color_attribution(attribution: dict) -> dict:
     """
-    This function generates the color dictionnary mapping a given group of bricks covered by the same SR to a same color.
+    This function generates the color dictionary mapping a given group of bricks covered by multiple SRs to a proportion of colors.
     Input:
-            attribution:    Attribution dictionnary. The keys are the location of the center brick and the values are the lists of the covered cities
+            attribution:    Attribution dictionary. The keys are the SR IDs, and the values contain the list of assigned bricks.
     """
-
-    color_list = list(mcolors.TABLEAU_COLORS)
-
+    color_list = list(mcolors.TABLEAU_COLORS.values())
     color_attribution = {}
-    for color_id in attribution:
-        for city in attribution[color_id]["Assigned bricks"]:
-            color_attribution[city] = color_list[color_id]
-
+    
+    for sr_id, data in attribution.items():
+        for city, proportion in data["Assigned bricks"]:
+            if city not in color_attribution:
+                color_attribution[city] = []
+            color_attribution[city].append((color_list[sr_id % len(color_list)], proportion))
+    
     return color_attribution
 
+def plot_pie_chart(ax, x, y, colors):
+    """Plots a small pie chart at a given location."""
+    total = sum(proportion for _, proportion in colors)
+    start_angle = 0
+    
+    for color, proportion in colors:
+        angle = 360 * (proportion / total)
+        wedge = Wedge((x, y), 0.4, start_angle, start_angle + angle, color=color)
+        ax.add_patch(wedge)
+        start_angle += angle
 
 def plot_cities_attribution(attribution: dict) -> None:
     """
-    This function plots the map of the SRs attribution.
+    This function plots the map of the SRs attribution with pie charts for cities covered by multiple SRs.
     Inputs:
-            attribution:    Attribution dictionnary. The keys are the location of the center brick and the values are the lists of the covered cities
+            attribution:    Attribution dictionary. The keys are the SR IDs, and the values contain the list of assigned bricks.
     """
     distances = np.array(
         pd.read_excel("data/distances_villes.xlsx", header=0, index_col=0)
     )
     positions = get_positions_city(distances)
     color_attribution = get_color_attribution(attribution)
-
-    plt.figure(figsize=(8, 6))
-
-    plt.scatter(
-        positions[:, 0],
-        positions[:, 1],
-        color=[color_attribution[city] for city in range(len(color_attribution))],
-        s=50,
-    )
-
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    for city, (x, y) in enumerate(positions):
+        if city in color_attribution:
+            plot_pie_chart(ax, x, y, color_attribution[city])
+    
     for i, (x, y) in enumerate(positions):
         plt.text(
             x - 0.2,
@@ -84,20 +97,19 @@ def plot_cities_attribution(attribution: dict) -> None:
             if i in [attribution[i]["Center brick"] for i in attribution]
             else None,
         )
-
+    
     plt.title("Attribution des villes aux commerciaux")
     plt.axis("equal")
     plt.show()
-
 
 if __name__ == "__main__":
     brick_distance = pd.read_csv("data/brick_rp_distances.csv", delimiter=",", header=0)
     index_values = pd.read_csv("data/bricks_index_values.csv", delimiter=",", header=0)
 
     current_assignment = {
-        0: {"Center brick": 3, "Assigned bricks": [3, 4, 5, 6, 7, 14]},
-        1: {"Center brick": 13, "Assigned bricks": [9, 10, 11, 12, 13]},
-        2: {"Center brick": 15, "Assigned bricks": [8, 15, 16, 17]},
-        3: {"Center brick": 21, "Assigned bricks": [0, 1, 2, 18, 19, 20, 21]},
+        0: {"Center brick": 3, "Assigned bricks": [(3, 1), (4, 1), (5, 1), (6, 1), (7, 1), (14, 1)]},
+        1: {"Center brick": 13, "Assigned bricks": [(9, 1), (10, 1), (11, 1), (12, 1), (13, 1)]},
+        2: {"Center brick": 15, "Assigned bricks": [(8, 1), (15, 1), (16, 1), (17, 1)]},
+        3: {"Center brick": 21, "Assigned bricks": [(0, 1), (1, 1), (2, 1), (18, 1), (19, 1), (20, 1), (21, 1)]},
     }
     plot_cities_attribution(current_assignment)

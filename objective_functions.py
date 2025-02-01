@@ -1,6 +1,6 @@
-from gurobipy import *
+from gurobipy import MVar
 import pandas as pd
-from typing import Callable, Optional
+from typing import Callable
 
 class ObjectiveFunction(Callable):
     def __call__(self, SR_matrix: MVar, boolean_matrix:MVar, current_assignment: dict, distances: pd.DataFrame, index_values:pd.Series):

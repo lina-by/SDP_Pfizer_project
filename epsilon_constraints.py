@@ -1,5 +1,7 @@
-from model import create_model, get_solution_dict, print_solution
-from objective_functions import *
+from model import create_model, get_solution_dict
+from gurobipy import GRB
+from typing import Optional
+from objective_functions import distance, ObjectiveFunction, disruption
 
 import pandas as pd
 import numpy as np
@@ -19,7 +21,7 @@ def rebuild_sol(l: list, num_zones: int, num_SRs: int):
     return mat
 
 
-def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, wl_interval: tuple[float, float] = (0.8, 1.2), epsilon_constraint: Optional[ObjectiveFunction] = None, center_bricks=[3, 13, 15, 21]):
+def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, wl_interval: tuple[float, float] = (0.8, 1.2), epsilon_constraint: Optional[ObjectiveFunction] = None, center_bricks=[3, 13, 15, 21], pct:bool=False):
     status = GRB.OPTIMAL
     assignments = []  # Store the assignments
     scores = []  # Store the score for the solution found
@@ -28,17 +30,15 @@ def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, 
     while status == GRB.OPTIMAL:
         model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
                              distances=distances, index_values=index_values, objective_function=objective_function, wl_interval=wl_interval,
-                             epsilon=epsilon, epsilon_constraint=epsilon_constraint)
+                             epsilon=epsilon, epsilon_constraint=epsilon_constraint, pct=pct)
         model.params.outputflag = 0
         model.optimize()
         status = model.status
 
         if status == GRB.OPTIMAL:
-            output_vars = [var.x for var in model.getVars()]
-            rebuilded_sol = rebuild_sol(output_vars, num_zones, num_SRs)
+            rebuilded_sol = np.array([[model.getVarByName(f"pct_zone_SR[{i},{j}]").X for j in range(num_SRs)] for i in range(num_zones)])
             current_val = float(epsilon_constraint(
-                rebuilded_sol, current_assignment, distances, index_values))
-
+                rebuilded_sol, rebuilded_sol, current_assignment, distances, index_values))
             assignments.append(get_solution_dict(
                 model, num_zones, num_SRs, center_bricks))
             scores.append((model.ObjVal, current_val))
