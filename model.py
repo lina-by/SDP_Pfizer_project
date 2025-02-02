@@ -63,7 +63,6 @@ def create_model(num_zones: int, num_SRs: int, current_assignment: dict, distanc
     if new_SRs!=0:    
         new_SRs_center = model.addMVar((num_zones, new_SRs), vtype=GRB.BINARY, name='new_SRs')
         new_center_constraints(model, SR_matrix, new_SRs_center, seuil)
-    #print(type(new_SRs_center), new_SRs_center)
     objective = objective_function(model=model, SR_matrix=SR_matrix, boolean_matrix=boolean_matrix, new_SRs_center=new_SRs_center,
                                    current_assignment=current_assignment, distances=distances, index_values=index_values)
 

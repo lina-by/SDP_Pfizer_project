@@ -6,20 +6,6 @@ import pandas as pd
 import numpy as np
 from plots import *
 
-def rebuild_sol(l: list, num_zones: int, num_SRs: int):
-    '''
-    Returns a matrix representing the solution from Gurobi
-    '''
-    mat = np.zeros((num_zones, num_SRs))
-
-    for i in range(len(l)):
-        if l[i]:
-            row, col = i // num_SRs, i % num_SRs
-            mat[row][col] = 1
-
-    return mat
-
-
 def get_values(model: Model):
     values = []
 
@@ -35,15 +21,12 @@ def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, 
     assignments = []  # Store the assignments
     scores = []  # Store the score for the solution found
     epsilons = [num_SRs + new_SRs, wl_interval[1]]
-    boule = True
-    while status == GRB.OPTIMAL or boule: #epsilon 1
-        print("New epsilon 1")
-        boule = False
-        
+    prev_sol_found = True
+    while status == GRB.OPTIMAL or prev_sol_found: #epsilon 1
+        prev_sol_found = False
 
         status = GRB.OPTIMAL
         while status == GRB.OPTIMAL: #epsilon 2
-            #print("new epsilon 2: ", epsilons)
             model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
                              distances=distances, index_values=index_values, objective_function=objective_function, wl_interval=wl_interval,
                              epsilon=epsilons, epsilon_constraint=epsilon_constraints, pct=pct, new_SRs=new_SRs)
@@ -58,14 +41,13 @@ def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, 
                 else:               
                     new_assign = get_solution_dict(
                         model, num_zones, num_SRs, center_bricks)
-                #plot_cities_attribution(new_assign)
+                
                 assignments.append(new_assign)
-
                 values = get_values(model)
-                print(values)
+                
                 scores.append(values)
                 epsilons[1] = values[2] - epsilons_increment[1]
-                boule = True
+                prev_sol_found = True
 
         epsilons = [values[1] - epsilons_increment[0], 100000000]
 
@@ -91,7 +73,7 @@ if __name__ == "__main__":
         3: {"Center brick": 21, "Assigned bricks": [0, 1, 2, 18, 19, 20, 21]}
     }
     assignments, scores = epsilon_constraints(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
-                                              distances=distances, index_values=index_values, objective_function=distance_newSR, wl_interval=(0.4, 1.6), epsilons_increment=[0.8, 0.05], epsilon_constraints=[disruption_newSR, min_max_newSR], new_SRs= 4)
+                                              distances=distances, index_values=index_values, objective_function=distance_newSR, wl_interval=(0.4, 1.6), epsilons_increment=[0.8, 0.01], epsilon_constraints=[disruption_newSR, min_max_newSR], new_SRs= 4)
 
     print(scores)
 
