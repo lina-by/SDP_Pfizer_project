@@ -76,7 +76,7 @@ def disruption_newSR(new_SRs_center:MVar, current_assignment: dict):
     objective = 0
     for sr, data in current_assignment.items():
         center_brick=data["Center brick"]
-        objective += 1-new_SRs_center[center_brick, sr]
+        objective += new_SRs_center[center_brick, sr] - 1
     return objective
 
 @ObjectiveFunction
