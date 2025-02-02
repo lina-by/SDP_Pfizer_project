@@ -34,8 +34,8 @@ def centre_assignment(model: Model, SR_matrix: MVar, center_brick: dict, seuil):
 
 def create_model(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame,
                  index_values: pd.Series, objective_function: Union[ObjectiveFunction, NewSRObjectiveFunction],
-                 wl_interval: tuple[float, float] = (0.8, 1.2), epsilon_constraint: Optional[ObjectiveFunction] = None,
-                 epsilon: Optional[float] = None, seuil:float = 0.05, new_SRs:int=0, pct:bool=True):
+                 wl_interval: tuple[float, float] = (0.8, 1.2), epsilon_constraint: Union[list[ObjectiveFunction], list[NewSRObjectiveFunction]] = [],
+                 epsilon:list = [], seuil:float = 0.05, new_SRs:int=0, pct:bool=True):
     
     model = Model("pfizer_sr")
     center_brick = {sr: data["Center brick"]
@@ -51,7 +51,6 @@ def create_model(num_zones: int, num_SRs: int, current_assignment: dict, distanc
         SR_matrix = model.addMVar((num_zones, num_SRs+new_SRs), vtype=GRB.BINARY, name="pct_zone_SR")
         boolean_matrix = SR_matrix
     
-    new_SRs_center = model.addMVar((num_zones, new_SRs), name='new_SRs')
     
     # chaque zone est occupée à 100%
     model.addConstr(SR_matrix.sum(axis=1) == 1, name="assign_one_SR")
@@ -62,8 +61,9 @@ def create_model(num_zones: int, num_SRs: int, current_assignment: dict, distanc
     centre_assignment(model=model, SR_matrix=SR_matrix,
                       center_brick=center_brick, seuil=seuil)
 
-    if new_SRs!=0:
-        new_center_constraints(model, new_SRs_center, seuil)
+    if new_SRs!=0:    
+        new_SRs_center = model.addMVar((num_zones, new_SRs), vtype=GRB.BINARY, name='new_SRs')
+        new_center_constraints(model, SR_matrix, new_SRs_center, seuil)
         objective = objective_function(
             SR_matrix, boolean_matrix, new_SRs_center, current_assignment, distances, index_values)
     else:
@@ -71,10 +71,21 @@ def create_model(num_zones: int, num_SRs: int, current_assignment: dict, distanc
         SR_matrix, boolean_matrix, current_assignment, distances, index_values)
 
 
-    if epsilon is not None and epsilon_constraint is not None:
-        constraint = epsilon_constraint(
-            SR_matrix, boolean_matrix, current_assignment, distances, index_values)
-        model.addConstr(constraint <= epsilon, name="epsilon_constraint")
+
+    if epsilon==[]:    
+        model.setObjective(objective, GRB.MINIMIZE)
+        return model
+
+    assert len(epsilon) == len(epsilon_constraint), "number of epsilon functions and thershold do not match"
+
+    if new_SRs!=0:
+        for i, (eps, eps_constraint) in enumerate(zip(epsilon, epsilon_constraint)):
+            constraint = eps_constraint(SR_matrix, boolean_matrix, new_SRs_center, current_assignment, distances, index_values)
+            model.addConstr(constraint <= eps, name=f"epsilon_constraint_{i+1}")
+    else:
+        for i, (eps, eps_constraint) in enumerate(zip(epsilon, epsilon_constraint)):
+            constraint = eps_constraint(SR_matrix, boolean_matrix, current_assignment, distances, index_values)
+            model.addConstr(constraint <= eps, name=f"epsilon_constraint_{i+1}")
 
     
     model.setObjective(objective, GRB.MINIMIZE)
