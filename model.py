@@ -1,7 +1,7 @@
 from gurobipy import Model, MVar, GRB, quicksum
 import pandas as pd
 
-from objective_functions import distance, ObjectiveFunction
+from objective_functions import *
 from model_new_sr import new_center_constraints
 from plots import plot_cities_attribution
 
@@ -63,6 +63,7 @@ def create_model(num_zones: int, num_SRs: int, current_assignment: dict, distanc
     if new_SRs!=0:    
         new_SRs_center = model.addMVar((num_zones, new_SRs), vtype=GRB.BINARY, name='new_SRs')
         new_center_constraints(model, SR_matrix, new_SRs_center, seuil)
+    #print(type(new_SRs_center), new_SRs_center)
     objective = objective_function(model=model, SR_matrix=SR_matrix, boolean_matrix=boolean_matrix, new_SRs_center=new_SRs_center,
                                    current_assignment=current_assignment, distances=distances, index_values=index_values)
 
@@ -74,9 +75,12 @@ def create_model(num_zones: int, num_SRs: int, current_assignment: dict, distanc
     assert len(epsilon) == len(epsilon_constraint), "number of epsilon functions and thershold do not match"
 
     for i, (eps, eps_constraint) in enumerate(zip(epsilon, epsilon_constraint)):
+        #print("creating constraint", i, eps)
         constraint = eps_constraint(model=model, SR_matrix=SR_matrix, boolean_matrix=boolean_matrix, new_SRs_center=new_SRs_center,
                                    current_assignment=current_assignment, distances=distances, index_values=index_values)
+        #print(constraint)
         model.addConstr(constraint <= eps, name=f"epsilon_constraint_{i+1}")
+        model.update()
 
     
     model.setObjective(objective, GRB.MINIMIZE)
@@ -128,7 +132,7 @@ if __name__ == '__main__':
     index_values = pd.read_csv("data/bricks_index_values.csv")['index_value']
 
     num_zones = 22
-    num_SRs = 4
+    num_SRs = 0
 
     current_assignment = {
         0: {"Center brick": 3, "Assigned bricks": [3, 4, 5, 6, 7, 14]},
@@ -137,7 +141,7 @@ if __name__ == '__main__':
         3: {"Center brick": 21, "Assigned bricks": [0, 1, 2, 18, 19, 20, 21]}
     }
     model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
-                         distances=distances, objective_function=distance, index_values=index_values)
+                         distances=distances, objective_function=distance_newSR, index_values=index_values, new_SRs=4)
     model.optimize()
     print_solution(model, num_zones, num_SRs)
     plot_cities_attribution(
