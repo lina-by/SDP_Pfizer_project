@@ -2,7 +2,8 @@ from model import create_model, get_solution_dict
 from gurobipy import GRB
 from typing import Optional
 from objective_functions import distance, ObjectiveFunction, disruption
-
+from model_new_sr import NewSRObjectiveFunction
+from typing import Union
 import pandas as pd
 import numpy as np
 
@@ -21,32 +22,34 @@ def rebuild_sol(l: list, num_zones: int, num_SRs: int):
     return mat
 
 
-def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, wl_interval: tuple[float, float] = (0.8, 1.2), epsilon_constraint: Optional[ObjectiveFunction] = None, center_bricks=[3, 13, 15, 21], pct:bool=False):
+def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, wl_interval: tuple[float, float] = (0.8, 1.2), epsilons_values = list[float], epsilon_constraints: Union[list[ObjectiveFunction], list[NewSRObjectiveFunction]] = None, center_bricks=[3, 13, 15, 21], pct:bool=False):
     status = GRB.OPTIMAL
     assignments = []  # Store the assignments
     scores = []  # Store the score for the solution found
-    epsilon = None
-
+    epsilons = []
     while status == GRB.OPTIMAL:
+        print("epsilons: ", epsilons)
         model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
                              distances=distances, index_values=index_values, objective_function=objective_function, wl_interval=wl_interval,
-                             epsilon=epsilon, epsilon_constraint=epsilon_constraint, pct=pct)
+                             epsilon=epsilons, epsilon_constraint=epsilon_constraints, pct=pct)
         model.params.outputflag = 0
         model.optimize()
         status = model.status
-
+        print("current status: ", status)
         if status == GRB.OPTIMAL:
             rebuilded_sol = np.array([[model.getVarByName(f"pct_zone_SR[{i},{j}]").X for j in range(num_SRs)] for i in range(num_zones)])
-            current_val = float(epsilon_constraint(
-                rebuilded_sol, rebuilded_sol, current_assignment, distances, index_values))
+            current_vals = []
+                
             assignments.append(get_solution_dict(
                 model, num_zones, num_SRs, center_bricks))
-            scores.append((model.ObjVal, current_val))
 
-            if epsilon_constraint == distance:
-                epsilon = current_val - 0.05
-            else:
-                epsilon = current_val - 0.02
+            epsilons = []
+            for i, epsilon_func in enumerate(epsilon_constraints):
+                current_vals.append(float(epsilon_func(
+                    rebuilded_sol, rebuilded_sol, current_assignment, distances, index_values)))
+                epsilons.append(current_vals[i] - epsilons_values[i])
+
+            scores.append((model.ObjVal, current_vals[0])) #TODO return all current vals
 
     return assignments, scores
 
@@ -68,7 +71,7 @@ if __name__ == "__main__":
         3: {"Center brick": 21, "Assigned bricks": [0, 1, 2, 18, 19, 20, 21]}
     }
     assignments, scores = epsilon_constraints(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
-                                              distances=distances, index_values=index_values, objective_function=disruption, wl_interval=(0.8, 1.2), epsilon_constraint=distance)
+                                              distances=distances, index_values=index_values, objective_function=disruption, wl_interval=(0.8, 1.2), epsilons_values=[0.05, 0.05], epsilon_constraints=[distance, distance])
 
     print(scores)
 
@@ -82,7 +85,7 @@ if __name__ == "__main__":
     plt.ylabel('Distance')
     plt.show()
 
-    assignments, scores = epsilon_constraints(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
+    '''assignments, scores = epsilon_constraints(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
                                               distances=distances, index_values=index_values, objective_function=distance, wl_interval=(0.8, 1.2), epsilon_constraint=disruption)
 
     print(scores)
@@ -95,4 +98,4 @@ if __name__ == "__main__":
     plt.plot(X, y, marker='o', color='b', linestyle=' ')
     plt.xlabel('Distance')
     plt.ylabel('Disruption')
-    plt.show()
+    plt.show()'''
