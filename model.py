@@ -66,6 +66,10 @@ def create_model(num_zones: int, num_SRs: int, current_assignment: dict, distanc
     objective = objective_function(model=model, SR_matrix=SR_matrix, boolean_matrix=boolean_matrix, new_SRs_center=new_SRs_center,
                                    current_assignment=current_assignment, distances=distances, index_values=index_values)
 
+    
+    if epsilon==[]:    
+        model.setObjective(objective, GRB.MINIMIZE)
+        return model
 
     assert len(epsilon) == len(epsilon_constraint), "number of epsilon functions and thershold do not match"
 

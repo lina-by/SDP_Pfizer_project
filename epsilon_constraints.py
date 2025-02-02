@@ -1,9 +1,6 @@
 from model import create_model, get_solution_dict
 from gurobipy import GRB
-from typing import Optional
-from objective_functions import distance, ObjectiveFunction, disruption
-from model_new_sr import NewSRObjectiveFunction
-from typing import Union
+from objective_functions import *
 import pandas as pd
 import numpy as np
 
@@ -22,11 +19,11 @@ def rebuild_sol(l: list, num_zones: int, num_SRs: int):
     return mat
 
 
-def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, wl_interval: tuple[float, float] = (0.8, 1.2), epsilons_values = list[float], epsilon_constraints: Union[list[ObjectiveFunction], list[NewSRObjectiveFunction]] = None, center_bricks=[3, 13, 15, 21], pct:bool=False):
+def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, wl_interval: tuple[float, float] = (0.8, 1.2), epsilons_values : list[float] = [], epsilon_constraints: list[ObjectiveFunction] = [], center_bricks=[3, 13, 15, 21], pct:bool=False):
     status = GRB.OPTIMAL
     assignments = []  # Store the assignments
     scores = []  # Store the score for the solution found
-    epsilons = []
+    epsilons = [1000000 for _ in range(len(epsilon_constraints))]
     while status == GRB.OPTIMAL:
         print("epsilons: ", epsilons)
         model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
@@ -37,19 +34,22 @@ def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, 
         status = model.status
         print("current status: ", status)
         if status == GRB.OPTIMAL:
-            rebuilded_sol = np.array([[model.getVarByName(f"pct_zone_SR[{i},{j}]").X for j in range(num_SRs)] for i in range(num_zones)])
-            current_vals = []
+            #rebuilded_sol = np.array([[model.getVarByName(f"pct_zone_SR[{i},{j}]").X for j in range(num_SRs)] for i in range(num_zones)])
                 
             assignments.append(get_solution_dict(
                 model, num_zones, num_SRs, center_bricks))
 
             epsilons = []
+            values = []
             for i, epsilon_func in enumerate(epsilon_constraints):
-                current_vals.append(float(epsilon_func(
-                    rebuilded_sol, rebuilded_sol, current_assignment, distances, index_values)))
-                epsilons.append(current_vals[i] - epsilons_values[i])
+                '''current_vals.append(float(epsilon_func(
+                    SR_matrix = rebuilded_sol, boolean_matrix = boolean_matrix, current_assignment, distances, index_values)))'''
+                constraint = model.getConstrByName(f"epsilon_constraint_{i+1}")
+                eps_func_value = model.getRow(constraint).getValue()
+                values.append(eps_func_value)
+                epsilons.append(eps_func_value - epsilons_values[i])
 
-            scores.append((model.ObjVal, current_vals[0])) #TODO return all current vals
+            scores.append((model.ObjVal, *values)) #TODO return all current vals
 
     return assignments, scores
 
@@ -71,11 +71,11 @@ if __name__ == "__main__":
         3: {"Center brick": 21, "Assigned bricks": [0, 1, 2, 18, 19, 20, 21]}
     }
     assignments, scores = epsilon_constraints(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
-                                              distances=distances, index_values=index_values, objective_function=disruption, wl_interval=(0.8, 1.2), epsilons_values=[0.05, 0.05], epsilon_constraints=[distance, distance])
+                                              distances=distances, index_values=index_values, objective_function=disruption, wl_interval=(0.8, 1.2), epsilons_values=[0.05, 0.01], epsilon_constraints=[distance, distance])
 
     print(scores)
 
-    import matplotlib.pyplot as plt
+    '''import matplotlib.pyplot as plt
 
     X = [el[0] for el in scores]
     y = [el[1] for el in scores]
@@ -83,6 +83,30 @@ if __name__ == "__main__":
     plt.plot(X, y, marker='o', color='b', linestyle=' ')
     plt.xlabel('Disruption')
     plt.ylabel('Distance')
+    plt.show()'''
+
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.mplot3d import Axes3D
+
+    # Example 3D scores (replace with your data)
+
+    # Extract X, Y, and Z coordinates
+    X = [el[0] for el in scores]
+    Y = [el[1] for el in scores]
+    Z = [el[2] for el in scores]
+
+    # Create 3D plot
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Scatter plot
+    ax.scatter(X, Y, Z, marker='o', color='b')
+
+    # Labels
+    ax.set_xlabel('Disruption')
+    ax.set_ylabel('Distance')
+    ax.set_zlabel('Some Metric')  # Rename Z-axis as needed
+
     plt.show()
 
     '''assignments, scores = epsilon_constraints(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
