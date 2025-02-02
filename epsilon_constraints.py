@@ -19,7 +19,7 @@ def rebuild_sol(l: list, num_zones: int, num_SRs: int):
     return mat
 
 
-def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, wl_interval: tuple[float, float] = (0.8, 1.2), epsilons_values : list[float] = [], epsilon_constraints: list[ObjectiveFunction] = [], center_bricks=[3, 13, 15, 21], pct:bool=False):
+def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, distances: pd.DataFrame, index_values: pd.Series, objective_function: ObjectiveFunction, new_SRs= 0, wl_interval: tuple[float, float] = (0.8, 1.2), epsilons_values : list[float] = [], epsilon_constraints: list[ObjectiveFunction] = [], center_bricks=[3, 13, 15, 21], pct:bool=False):
     status = GRB.OPTIMAL
     assignments = []  # Store the assignments
     scores = []  # Store the score for the solution found
@@ -28,7 +28,7 @@ def epsilon_constraints(num_zones: int, num_SRs: int, current_assignment: dict, 
         print("epsilons: ", epsilons)
         model = create_model(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
                              distances=distances, index_values=index_values, objective_function=objective_function, wl_interval=wl_interval,
-                             epsilon=epsilons, epsilon_constraint=epsilon_constraints, pct=pct)
+                             epsilon=epsilons, epsilon_constraint=epsilon_constraints, pct=pct, new_SRs=new_SRs)
         model.params.outputflag = 0
         model.optimize()
         status = model.status
@@ -71,7 +71,7 @@ if __name__ == "__main__":
         3: {"Center brick": 21, "Assigned bricks": [0, 1, 2, 18, 19, 20, 21]}
     }
     assignments, scores = epsilon_constraints(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
-                                              distances=distances, index_values=index_values, objective_function=disruption, wl_interval=(0.8, 1.2), epsilons_values=[0.05, 0.01], epsilon_constraints=[distance, distance])
+                                              distances=distances, index_values=index_values, objective_function=distance_newSR, wl_interval=(0.8, 1.2), epsilons_values=[0.001, 0.001], epsilon_constraints=[min_max_newSR, min_max_newSR], new_SRs= 1)
 
     print(scores)
 
@@ -84,30 +84,30 @@ if __name__ == "__main__":
     plt.xlabel('Disruption')
     plt.ylabel('Distance')
     plt.show()'''
+    if scores != []:
+        import matplotlib.pyplot as plt
+        from mpl_toolkits.mplot3d import Axes3D
 
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D
+        # Example 3D scores (replace with your data)
 
-    # Example 3D scores (replace with your data)
+        # Extract X, Y, and Z coordinates
+        X = [el[0] for el in scores]
+        Y = [el[1] for el in scores]
+        Z = [el[2] for el in scores]
 
-    # Extract X, Y, and Z coordinates
-    X = [el[0] for el in scores]
-    Y = [el[1] for el in scores]
-    Z = [el[2] for el in scores]
+        # Create 3D plot
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
 
-    # Create 3D plot
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+        # Scatter plot
+        ax.scatter(X, Y, Z, marker='o', color='b')
 
-    # Scatter plot
-    ax.scatter(X, Y, Z, marker='o', color='b')
+        # Labels
+        ax.set_xlabel('Disruption')
+        ax.set_ylabel('Distance')
+        ax.set_zlabel('Some Metric')  # Rename Z-axis as needed
 
-    # Labels
-    ax.set_xlabel('Disruption')
-    ax.set_ylabel('Distance')
-    ax.set_zlabel('Some Metric')  # Rename Z-axis as needed
-
-    plt.show()
+        plt.show()
 
     '''assignments, scores = epsilon_constraints(num_zones=num_zones, num_SRs=num_SRs, current_assignment=current_assignment,
                                               distances=distances, index_values=index_values, objective_function=distance, wl_interval=(0.8, 1.2), epsilon_constraint=disruption)
