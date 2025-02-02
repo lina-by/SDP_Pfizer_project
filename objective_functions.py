@@ -1,4 +1,4 @@
-from gurobipy import Model, MVar, quicksum
+from gurobipy import Model, MVar, quicksum, GRB
 import pandas as pd
 import inspect
 from typing import Callable
@@ -88,6 +88,26 @@ def min_max_newSR(model:Model, SR_matrix:MVar, index_values:pd.Series):
         model.addConstr(
             quicksum(SR_matrix[zone, sr] * index_values[zone]
                      for zone in range(num_zones)) <= maximum,
-            name=f"max_workload_sr_{sr}"
+            name=f"max_minmax_workload_sr_{sr}"
         )
     return maximum
+
+
+@ObjectiveFunction
+def workload_fairness(model:Model, SR_matrix:MVar, index_values:pd.Series):
+    maximum = model.addVar(vtype=GRB.CONTINUOUS)
+    minimum = model.addVar(vtype=GRB.CONTINUOUS)
+    num_zones, num_SRs = SR_matrix.shape
+    for sr in range(num_SRs):
+        # Add the constraint for the maximum workload
+        model.addConstr(
+            quicksum(SR_matrix[zone, sr] * index_values[zone]
+                     for zone in range(num_zones)) <= maximum,
+            name=f"max_workload_sr_{sr}"
+        )
+        model.addConstr(
+            quicksum(SR_matrix[zone, sr] * index_values[zone]
+                     for zone in range(num_zones)) >= minimum,
+            name=f"min_workload_sr_{sr}"
+        )
+    return maximum-minimum
